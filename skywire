@@ -1,0 +1,45 @@
+#!/bin/bash
+#script requires skywire mainnet binaries, dpkg, and reprepro
+
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must run as root" 1>&2
+   exit 100
+fi
+
+cd ~/
+# detect visor-config.json
+if [ ! -f /etc/skywire-visor.json ]; then
+  #check if the hypervisorinfo.txt file exists
+  if [ -f /usr/lib/skycoin/skywire/hypervisor.txt ]; then
+    # create skywire-config.json and set hvisor key
+    skywire-cli visor gen-config -rt
+    hvisorkey=$(cat /usr/lib/skycoin/skywire/hypervisor*.txt)
+  else
+    # hypervisor.txt is not provided, set up hypervisor
+    #generate configs if needed and parse hvisorkey and ip
+    [ ! -f /etc/skywire-hypervisor.json ] && skywire-hypervisor gen-config -rto /etc/skywire-hypervisor.json
+    hvisorkey=$(cat /etc/skywire-hypervisor.json | grep "public_key" | awk '{print substr($2,2,66)}')
+    skywire-cli visor gen-config -rto /etc/skywire-visor.json
+    #Create the debian package with the hypervisor key text file
+    packagename=hypervisorkey
+    packageversion=1
+    packagearchitecture=(amd64 arm64 armhf armel)
+    debpkgdir="${packagename}-${packageversion}"
+    mkdir -p $debpkgdir/DEBIAN $debpkgdir/usr/lib/skycoin/skywire-mainnet/hypervisorconfig
+    echo "Package: $packagename" > $debpkgdir/DEBIAN/control
+    echo "Version: $packageversion" >> $debpkgdir/DEBIAN/control
+    echo "Priority: optional" >> $debpkgdir/DEBIAN/control
+    echo "Section: web" >> $debpkgdir/DEBIAN/control
+    echo "Architecture: $packagearchitecture" >> $debpkgdir/DEBIAN/control
+    echo "Maintainer: Hypervisor" >> $debpkgdir/DEBIAN/control
+    echo "Description: Hypervisor configuration" >> $debpkgdir/DEBIAN/control
+    echo $hvisorkey > $debpkgdir/usr/lib/skycoin/skywire/hypervisor.txt
+    #build the debian package
+    dpkg-deb --build $debpkgdir
+    rm -rf $debpkgdir
+    #create-deb-repo
+  fi
+fi
+
+#create new visor-config.json from pared info
+[[ $(cat ~/skywire-config.json | grep '"hypervisors": \[\],') = *'"hypervisors": [],'* ]] && sudo sed -i 's/"hypervisors".*/"hypervisors": [{"public_key": "'"${hvisorkey}"'"}],/' /etc/skywire-visor.json

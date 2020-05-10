@@ -1,0 +1,46 @@
+#!/bin/bash
+#make a debian package repo of all created packages and offer to serve it on the LAN
+
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must run as root" 1>&2
+   exit 100
+fi
+
+default_debian_codename=(sid) #e.g. jessie, stretch, buster, sid
+startingpoint=$(pwd)
+#packagearchitecture="amd64 arm64 armhf armel i386 mips mipsel mips64el ppc64el riscv64 s390x"
+packagearchitecture=$(dpkg --print-architecture)
+#get debian version codename
+checkremove="VERSION_CODENAME="
+if [[ "$(cat /etc/os-release | grep $checkremove)" == $checkremove ]]; then
+debian_codename=$(cat /etc/os-release | grep $checkremove)
+debian_codename=${debian_codename#"$checkremove"}
+else
+debian_codename=$default_debian_codename
+fi
+
+repodirectory=/var/cache/apt/repo
+mkdir -p $repodirectory
+cd $repodirectory
+[ ! -d "conf" ] && mkdir conf
+
+#https://serverfault.com/questions/279153/why-does-reprepro-complain-about-the-all-architecture
+#If you specify your .deb (control file) as Architecture: all, then don't put anything into the reprepro distributions file
+#other than the arch's that you want it to get put into.
+#Architectures: amd64 arm64 armhf armel i386 mips mipsel mips64el ppc64el riscv64 s390x
+#The all packages are then available in all the architectures defined in conf/distributions
+if [ ! -f conf/distributions ]; then
+echo "creating repo configuration file"
+#cd ~/MY_PACKAGE_REPO
+echo "Origin: localhost" > conf/distributions
+echo "Label: localhost" >> conf/distributions
+echo "Codename: $debian_codename" >> conf/distributions
+echo "Architectures: $packagearchitecture" >> conf/distributions
+echo "Components: main" >> conf/distributions
+echo "Description: a local debian package repo" >> conf/distributions
+fi
+#create the repo
+cd /var/cache/apt/archives
+reprepro --basedir /var/cache/apt/repo includedeb $debian_codename *.deb
+#reprepro --basedir $(pwd) includedeb stretch *.deb
+readonlycache
